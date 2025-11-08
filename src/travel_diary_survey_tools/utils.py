@@ -63,12 +63,21 @@ def expr_haversine(
     lon1: pl.Expr,
     lat2: pl.Expr,
     lon2: pl.Expr,
+    units: str = "meters",
 ) -> pl.Expr:
-    """Return a Polars expression for Haversine distance in meters."""
+    """Return a Polars expression for Haversine distance."""
     r = 6371000.0  # Earth radius (meters)
     dlat = lat2.radians() - lat1.radians()
     dlon = lon2.radians() - lon1.radians()
     a = (dlat / 2).sin().pow(
         2
     ) + lat1.radians().cos() * lat2.radians().cos() * (dlon / 2).sin().pow(2)
-    return 2 * r * a.sqrt().arcsin()
+
+    distance = 2 * r * a.sqrt().arcsin()
+
+    if units in ["kilometers", "km"]:
+        distance = distance / 1000.0
+    elif units in ["miles", "mi"]:
+        distance = distance / 1609.344
+
+    return distance

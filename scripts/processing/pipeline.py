@@ -1,0 +1,146 @@
+"""Simple pipeline runner for travel diary survey processing."""
+
+import logging
+from pathlib import Path
+from typing import Any
+
+import polars as pl
+import yaml
+
+from travel_diary_survey_tools import link_trips
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class Pipeline:
+    """Travel diary survey processing pipeline."""
+
+    def __init__(self, config_path: str | Path) -> None:
+        """Initialize pipeline with configuration.
+
+        Args:
+            config_path: Path to YAML config file
+
+        """
+        self.config_path = Path(config_path)
+        self.config = self._load_config()
+        self._expand_config_paths()
+
+        # Canonical tables - always present
+        self.household: pl.DataFrame | None = None
+        self.person: pl.DataFrame | None = None
+        self.day: pl.DataFrame | None = None
+        self.unlinked_trips: pl.DataFrame | None = None
+        self.linked_trips: pl.DataFrame | None = None
+
+        # Map step names to methods
+        self.steps = {
+            "cleaning": self.load_data,
+            "linking": self.link_trips,
+            "tour_building": self.build_tours,
+            "formatting": self.save_outputs,
+        }
+
+    def _load_config(self) -> dict[str, Any]:
+        """Load and parse YAML config file."""
+        with self.config_path.open() as f:
+            return yaml.safe_load(f)
+
+    def _expand_config_paths(self) -> None:
+        """Expand all path variables in config at initialization."""
+        variables = {
+            k: v
+            for k, v in self.config.items()
+            if k != "pipeline" and isinstance(v, str)
+        }
+
+        def expand_dict(d: dict) -> None:
+            for key, value in d.items():
+                if isinstance(value, str):
+                    expanded_value = value
+                    for var_name, var_value in variables.items():
+                        expanded_value = expanded_value.replace(
+                            f"{{{{ {var_name} }}}}", var_value
+                        )
+                    d[key] = expanded_value
+                elif isinstance(value, dict):
+                    expand_dict(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            expand_dict(item)
+
+        expand_dict(self.config)
+
+    def run(self) -> None:
+        """Run pipeline steps defined in config.yaml."""
+        for step_config in self.config["pipeline"]["steps"]:
+            step_name = step_config["name"]
+            logger.info("Running step: %s", step_name)
+
+            step_func = self.steps[step_name]
+            step_func(step_config)
+
+            # Check if outputs required for step
+            if "outputs" in step_config:
+                self.save_outputs(step_config)
+
+            logger.info("Completed step: %s", step_name)
+
+        logger.info("Pipeline completed!")
+
+    def link_trips(self, step_config: dict[str, Any]) -> None:
+        """Link trips based on mode changes and dwell times.
+
+        Args:
+            step_config: Step configuration from YAML
+
+        """
+        # Load raw trips
+        unlinked_trip_path = step_config["input"]["unlinked_trip"]
+        self.unlinked_trips = pl.read_csv(unlinked_trip_path)
+
+        # Link trips using travel_diary_survey_tools
+        self.unlinked_trips, self.linked_trips = link_trips.link_trips(
+            self.unlinked_trips
+        )
+
+    def build_tours(self, step_config: dict[str, Any]) -> None:
+        """Build tour structures from linked trips.
+
+        Args:
+            step_config: Step configuration from YAML
+
+        """
+        # TODO(https://github.com/owner/repo/issues/123): Implement tour building  # noqa: E501, FIX002
+
+    def save_outputs(self, step_config: dict[str, Any]) -> None:
+        """Save processed data to output files.
+
+        Args:
+            step_config: Step configuration from YAML
+
+        """
+        for output_name, output_path in step_config["outputs"].items():
+            if hasattr(self, output_name):
+                df = getattr(self, output_name)
+                if df is not None:
+                    df.write_csv(output_path)
+                    logger.info(
+                        "Saved output %s to %s",
+                        output_name,
+                        output_path,
+                    )
+                else:
+                    logger.warning(
+                        "Output %s is None, not saving to %s",
+                        output_name,
+                        output_path,
+                    )
+            else:
+                logger.warning(
+                    "No attribute %s found for output, skipping save to %s",
+                    output_name,
+                    output_path,
+                )

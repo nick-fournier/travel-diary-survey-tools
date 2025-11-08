@@ -8,7 +8,7 @@ jupyter: python3
 
 ```{python}
 #| label: imports
-#| 
+#|
 import numpy as np
 from pathlib import Path
 import polars as pl
@@ -28,7 +28,7 @@ from scipy.stats import gaussian_kde
 DATA_DIR = Path("E:\\Box\\Modeling and Surveys\\Surveys\\Travel Diary Survey")
 DATA_DIR = DATA_DIR / "BATS_2023\\MTC_RSG_Partner Repository\\5.Deliverables"
 DATA_DIR = DATA_DIR / "Task 10 - Weighting and Expansion Data Files"
-DATA_DIR = DATA_DIR / "WeightedDataset_12112024"
+DATA_DIR = DATA_DIR / "WeightedDataset_02212025"
 TRIP_PATH = DATA_DIR / "trip.csv"
 
 # Hardcoded codes
@@ -79,7 +79,7 @@ EMPLOY_MAP = {
     6: "Unemployed and looking for work",
     7: "Unpaid volunteer or intern",
     8: "Employed, but not currently working (e.g., on leave, furloughed 100%)",
-    995: "Missing Response",    
+    995: "Missing Response",
 }
 
 ```
@@ -89,12 +89,13 @@ EMPLOY_MAP = {
 #| label: Link'em
 
 # Load data
-trips_df = pl.read_csv(TRIP_PATH)
+trips_df_raw = pl.read_csv(TRIP_PATH)
+households_df = pl.read_csv(DATA_DIR / "hh.csv")
 persons_df = pl.read_csv(DATA_DIR / "person.csv")
 days_df = pl.read_csv(DATA_DIR / "day.csv")
 
 # Much wow...
-trips_df_raw = trips_df.rename({"arrive_second": "arrive_seconds"})
+trips_df_raw = trips_df_raw.rename({"arrive_second": "arrive_seconds"})
 
 # Add time columns if missing
 trips_df_raw = utils.add_time_columns(trips_df_raw)
@@ -123,7 +124,7 @@ unlinked_trips, linked_trips = link_trips(
     transit_mode_codes=TRANSIT_MODES,
     max_dwell_time=120,  # minutes
     dwell_buffer_distance=100, # Meters
-) 
+)
 
 
 # Report the number of linked trips with > 1 trip segment
@@ -181,7 +182,7 @@ fig.show()
 # Weekday Work Trip Rates by Employment Status
 ```{python}
 #| label: employ-trips
-#| fig-cap: "Weekday Work Trip Rates by Employment Status"
+#| fig-cap: "Weekday Work Trip Rates by Employment"
 # Join employment status to linked trips
 employment_linked_trips = linked_trips.join(
     persons_df.select(["person_id", "employment"]),
@@ -216,7 +217,7 @@ employment_work_trips = (
         pl.col("linked_trip_weight").sum().alias("weighted_work_trips"),
     ])
     .with_columns(
-        pl.col("employment").cast(pl.Utf8).replace(EMPLOY_MAP).alias("employment_status"),        
+        pl.col("employment").cast(pl.Utf8).replace(EMPLOY_MAP).alias("employment_status"),
         pl.col("d_purpose_category").cast(pl.Utf8).replace(PURPOSE_MAP).alias("purpose"),
     )
     .sort("unweighted_work_trips", descending=True)
@@ -260,7 +261,7 @@ colors = px.colors.qualitative.Plotly
 # For each purpose, create grouped bars
 for i, purpose in enumerate(purposes):
     purpose_data = emp_plot_dat.filter(pl.col("purpose") == purpose)
-    
+
     # Add weighted bars (solid)
     fig.add_trace(go.Bar(
         name=f"{purpose} (Weighted)",
@@ -269,11 +270,11 @@ for i, purpose in enumerate(purposes):
         marker_color=colors[i % len(colors)],
         text=purpose_data["weighted_trip_rate"].round(2),
         texttemplate="%{text:.2f}",
-        textposition="outside",
+        textposition="inside",
         legendgroup=purpose,
         offsetgroup=i,
     ))
-    
+
     # Add unweighted bars (hatched overlay) on top of the same bars
     fig.add_trace(go.Bar(
         name=f"{purpose} (Unweighted)",
@@ -285,11 +286,14 @@ for i, purpose in enumerate(purposes):
         opacity=0.7,
         legendgroup=purpose,
         offsetgroup=i,
+        text=purpose_data["unweighted_trip_rate"].round(2),
+        texttemplate="%{text:.2f}",
+        textposition="inside",
     ))
 
 fig.update_layout(
     barmode="group",
-    title="Weekday Work Trip Rates by Employment Status",
+    title="Weekday Work Trip Rates by Employment",
     xaxis_title="Employment Status",
     yaxis_title="Trip Rate (Trips per Day)",
     yaxis_range=[0, 0.6],
@@ -299,6 +303,7 @@ fig.update_layout(
 fig.show()
 ```
 
+# Trip Counts by Day and Purpose
 ```{python}
 
 # Trip counts per day by purpose
@@ -342,7 +347,7 @@ trip_count_matrix = trip_count_matrix.join(
 
 ```
 
-
+# School Trips by Mode
 
 ```{python}
 #| label: school-trips
@@ -401,6 +406,7 @@ fig.update_traces(texttemplate="%{text:.3~s}", textposition="outside")
 fig.show()
 ```
 
+# Overnight Trips Investigation
 ```{python}
 #| label: overnights
 #| fig-cap: "Overnight Trips"
@@ -417,6 +423,7 @@ share_with_weight = 100 * overnights_complete.shape[0] / overnights.shape[0]
 print(f"Total overnight trips recorded: {overnights.shape[0]:,}")
 ```
 
+# Trip Timelines for Overnight Days
 ```{python}
 
 # Select daily diaries for 10 random overnight-flagged days
@@ -466,7 +473,7 @@ overnight_diaries = (
 # Use a muted color palette for non-overnight purposes
 muted_colors = px.colors.qualitative.Pastel + px.colors.qualitative.Set3
 color_map = {
-    purpose: muted_colors[i % len(muted_colors)] 
+    purpose: muted_colors[i % len(muted_colors)]
     for i, purpose in enumerate(PURPOSE_MAP.values())
 }
 color_map["Overnight"] = "red"  # Make overnight stand out
@@ -487,52 +494,26 @@ fig.show()
 
 ```
 
-
-```{python}
-#| label: depart-time
-#| fig-cap: "Weighted Departure Time Density (Ignoring Date)"
-
-# --- Convert to hour of day (float) ---
-linked_trips = linked_trips.with_columns([
-    (pl.col("depart_time").dt.hour() + pl.col("depart_time").dt.minute() / 60)
-    .alias("depart_hour_float"),
-])
-
-# Plot weighted distribution of departure times for all weighted trips as gut check
-fig = px.histogram(
-    linked_trips,
-    x="depart_hour_float",
-    nbins=48,
-    histfunc="sum",
-    y="linked_trip_weight",
-    title="Weighted Departure Time Distribution",
-    labels={
-        "depart_hour_float": "Hour of Day",
-        "linked_trip_weight": "Weighted Count",
-    },
-)
-
-fig.update_layout(
-    xaxis=dict(
-        tickmode="array",
-        tickvals=list(range(0, 25, 3)),
-        ticktext=[f"{h:02d}:00" for h in range(0, 25, 3)]
-    )
-)
-fig.show()
-```
-
+# Departure Times for Overnight Trips
 ```{python}
 #| label: depart-overnights
 #| fig-cap: "Departure Times for Overnight Trips"
 # Plot departure times for overnight trips
+
+
+# --- Convert to hour of day (float) ---
+linked_trips = linked_trips.with_columns([
+    (pl.col("depart_time").dt.hour() + pl.col("depart_time").dt.minute() / 60)
+        .alias("depart_hour_float"),
+    (pl.col("arrive_time").dt.hour() + pl.col("arrive_time").dt.minute() / 60)
+        .alias("arrive_hour_float"),
+])
+
+
 # Add arrival hour column
 overnight_departures = linked_trips.filter(
     (pl.col("d_purpose_category") == 12) & (pl.col("linked_trip_weight") > 0)
-).with_columns([
-    (pl.col("arrive_time").dt.hour() + pl.col("arrive_time").dt.minute() / 60)
-    .alias("arrive_hour_float"),
-])
+)
 
 # Create figure with overlaid histograms
 fig = go.Figure()
@@ -567,5 +548,109 @@ fig.update_layout(
     )
 )
 
+fig.show()
+```
+
+
+## Check overnight location against home location
+```{python}
+#| label: overnight-home
+#| fig-cap: "Overnight Trip Locations vs. Home Locations"
+
+nothomes = (
+    overnights
+    .select([
+        "linked_trip_id",
+        "hh_id",
+        "d_lat",
+        "d_lon",
+    ])
+    # Join with household home locations
+    .join(
+        households_df.select([
+            "hh_id",
+            "home_lat",
+            "home_lon",
+        ]),
+        on="hh_id",
+        how="left",
+    )
+    # Calculate distance from home
+    .with_columns([
+        utils.expr_haversine(
+            pl.col("d_lat"),
+            pl.col("d_lon"),
+            pl.col("home_lat"),
+            pl.col("home_lon"),
+        ).alias("distance_from_home"),
+    ])
+    # Confirm suspicion that "overnight" means they stayed somewhere
+    .filter(
+        pl.col("distance_from_home") < 100  # Meters
+    )
+)
+
+print(f"Number of overnight trips within 100 meters of home: {nothomes.shape[0]} out of {overnights.shape[0]} total overnight trips.")
+
+```
+
+
+## Check if overnight trip is the last trip of the day
+```{python}
+#| label: overnight-last
+#| fig-cap: "Overnight Trip as Last Trip of the Day"
+
+overnight_last = (
+    overnights_complete
+    .join(
+        linked_trips.select([
+            "day_id",
+            "arrive_time",
+        ]).group_by("day_id").agg([
+            pl.col("arrive_time").max().alias("max_arrive_time"),
+        ]),
+        on="day_id",
+        how="left",
+    )
+    .with_columns([
+        (pl.col("arrive_time") == pl.col("max_arrive_time"))
+        .alias("is_last_trip"),
+    ])
+)
+num_last_trips = overnight_last.filter(
+    pl.col("is_last_trip") == True
+).shape[0]
+
+print(f"Number of overnight trips that are the last trip of the day: {num_last_trips} out of {overnights_complete.shape[0]} total complete overnight trips.")
+
+```
+This seems to refute that, it seems that overnight purposes are just misused for other trip purposes?
+
+# Overall Departure Time Distribution
+```{python}
+#| label: depart-time
+#| fig-cap: "Weighted Departure Time Density (Ignoring Date)"
+
+# Plot weighted distribution of departure times for all weighted trips as gut check
+fig = px.histogram(
+    linked_trips,
+    x="depart_hour_float",
+    nbins=48,
+    histfunc="sum",
+    y="linked_trip_weight",
+    title="Weighted Departure Time Distribution",
+    labels={
+        "depart_hour_float": "Hour of Day",
+        "linked_trip_weight": "Weighted Count",
+    },
+)
+
+fig.update_layout(
+    xaxis=dict(
+        tickmode="array",
+        tickvals=list(range(0, 25, 3)),
+        ticktext=[f"{h:02d}:00" for h in range(0, 25, 3)]
+    )
+)
 fig.show()
 ```
