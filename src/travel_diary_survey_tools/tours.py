@@ -903,45 +903,6 @@ class TourBuilder:
         return linked_trips_with_tour_ids, tours
 
 
-# Public API -------------------------------------------------------------------
-
-
-def build_tours(
-    linked_trips: pl.DataFrame,
-    persons: pl.DataFrame,
-    config: dict | None = None,
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Build tours from linked trip data (functional interface).
-
-    Similar to link_trips(), enriches input with tour IDs and returns
-    aggregated tour records with attributes.
-
-    Args:
-        linked_trips: Linked trip data (see LinkedTripModel).
-                      Trips must be pre-linked using linker.py.
-        persons: Person data with home/work/school locations (PersonModel)
-        config: Optional configuration overrides (merges with DEFAULT_CONFIG)
-
-    Returns:
-        Tuple of (linked_trips_with_tour_ids, tours):
-        - linked_trips_with_tour_ids: Input trips with tour_id and
-          subtour_id added (join to tours for attributes)
-        - tours: Aggregated tour records (tour_purpose, tour_mode, etc.)
-
-    Example:
-        >>> # Complete pipeline
-        >>> trip_tours, linked_trips = link_trips(raw_trips, change_mode)
-        >>> linked_trips_with_ids, tours = build_tours(linked_trips, persons)
-        >>> # Join to get tour attributes on trips
-        >>> enriched = linked_trips_with_ids.join(
-        ...     tours.select(["tour_id", "tour_purpose", "tour_mode"]),
-        ...     on="tour_id", how="left"
-        ... )
-    """
-    builder = TourBuilder(persons, config)
-    return builder.build_tours(linked_trips)
-
-
 if __name__ == "__main__":  # pragma: no cover
     from pathlib import Path
 
@@ -961,7 +922,8 @@ if __name__ == "__main__":  # pragma: no cover
     persons = pl.read_csv(PERSONS_FILE)
 
     # Build tours with default configuration
-    linked_trips_with_tours, tours = build_tours(linked_trips, persons)
+    tour_builder = TourBuilder(persons)
+    linked_trips_with_tours, tours = tour_builder.build_tours(linked_trips)
 
     # Write outputs
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

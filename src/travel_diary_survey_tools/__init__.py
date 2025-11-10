@@ -1,9 +1,11 @@
 """Init file for travel_diary_survey_tools package."""
 
+from .format_daysim import DaysimFormatter
 from .linker import link_trips
-from .tours import build_tours
+from .tours import TourBuilder
 
 __all__ = [
-    "build_tours",
+    "DaysimFormatter",
+    "TourBuilder",
     "link_trips",
 ]

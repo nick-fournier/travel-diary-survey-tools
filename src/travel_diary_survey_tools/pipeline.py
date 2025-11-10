@@ -7,7 +7,7 @@ from typing import Any
 import polars as pl
 import yaml
 
-from travel_diary_survey_tools import TourBuilder, link_trips
+from travel_diary_survey_tools import DaysimFormatter, TourBuilder, link_trips
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,12 +32,14 @@ class Pipeline:
         self.day: pl.DataFrame | None = None
         self.unlinked_trips: pl.DataFrame | None = None
         self.linked_trips: pl.DataFrame | None = None
+        self.tours: pl.DataFrame | None = None
 
         # Map step names to methods
         self.steps = {
             "cleaning": self.load_data,
             "linking": self.link_trips,
             "tour_building": self.build_tours,
+            "daysim_formatting": self.format_daysim,
             "formatting": self.save_outputs,
         }
 
@@ -120,6 +122,42 @@ class Pipeline:
 
         # Store tours as attribute
         self.tours = tours
+
+    def format_daysim(self, step_config: dict[str, Any]) -> None:
+        """Format data to DaySim model specification.
+
+        Args:
+            step_config: Step configuration from YAML
+
+        """
+        logger.info("Formatting data to DaySim specification")
+
+        # Initialize formatter
+        formatter = DaysimFormatter(step_config.get("parameters", {}))
+
+        # Load day completeness if path provided
+        day_completeness = None
+        if "day_completeness_path" in step_config.get("inputs", {}):
+            day_path = step_config["inputs"]["day_completeness_path"]
+            logger.info("Loading day completeness from: %s", day_path)
+            day_completeness = formatter.load_day_completeness(day_path)
+
+        # Format each table
+        if self.person is not None:
+            logger.info("Formatting person data")
+            self.person = formatter.format_person(self.person, day_completeness)
+
+        if self.household is not None:
+            logger.info("Formatting household data")
+            self.household = formatter.format_household(
+                self.household, self.person
+            )
+
+        if self.unlinked_trips is not None:
+            logger.info("Formatting trip data")
+            self.unlinked_trips = formatter.format_trip(self.unlinked_trips)
+
+        logger.info("DaySim formatting completed")
 
     def save_outputs(self, step_config: dict[str, Any]) -> None:
         """Save processed data to output files.
