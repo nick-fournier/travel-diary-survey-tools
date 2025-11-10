@@ -1,4 +1,4 @@
-"""Data models for trip linking."""
+"""Data models for trip linking and tour building."""
 
 import pandera.polars as pa
 import polars as pl
@@ -11,6 +11,27 @@ class CoordModel(pd.BaseModel):
 
     latitude: float = pd.Field(ge=-90.0, le=90.0)
     longitude: float = pd.Field(ge=-180.0, le=180.0)
+
+
+class PersonModel(pa.DataFrameModel):
+    """Person attributes for tour building."""
+
+    person_id: pl.Int64 = pa.Field(ge=1)
+    hh_id: pl.Int64 = pa.Field(ge=1)
+    person_type: pl.Int64 = pa.Field(ge=1)
+    age: pl.Int64 = pa.Field(ge=0, nullable=True)
+    home_lat: pl.Float64 = pa.Field(ge=-90, le=90)
+    home_lon: pl.Float64 = pa.Field(ge=-180, le=180)
+    work_lat: pl.Float64 = pa.Field(ge=-90, le=90, nullable=True)
+    work_lon: pl.Float64 = pa.Field(ge=-180, le=180, nullable=True)
+    school_lat: pl.Float64 = pa.Field(ge=-90, le=90, nullable=True)
+    school_lon: pl.Float64 = pa.Field(ge=-180, le=180, nullable=True)
+
+
+class HouseholdModel(pa.DataFrameModel):
+    """Household attributes (minimal for tour building)."""
+
+    hh_id: pl.Int64 = pa.Field(ge=1)
 
 
 # Minimal data schema for trip linking
@@ -53,3 +74,98 @@ class LinkedTripModel(TripModel):
 
     trip_id: None
     linked_trip_id: pl.Int64 = pa.Field(ge=1, nullable=True)
+
+
+class TourModel(pa.DataFrameModel):
+    """Tour-level records with clear, descriptive field names."""
+
+    tour_id: pl.Int64 = pa.Field(ge=1)
+    person_id: pl.Int64 = pa.Field(ge=1)
+    day_id: pl.Int64 = pa.Field(ge=1)
+    tour_sequence_num: pl.Int64 = pa.Field(ge=1)
+    tour_category: pl.Utf8  # 'home_based' or 'work_based'
+    parent_tour_id: pl.Int64 = pa.Field(ge=1, nullable=True)
+
+    # Purpose and priority
+    primary_purpose: pl.Int64 = pa.Field(ge=1)
+    primary_dest_purpose: pl.Int64 = pa.Field(ge=1)
+    purpose_priority: pl.Int64 = pa.Field(ge=1)
+
+    # Timing
+    origin_depart_time: pl.Datetime
+    dest_arrive_time: pl.Datetime
+    dest_depart_time: pl.Datetime
+    origin_arrive_time: pl.Datetime
+
+    # Locations
+    origin_lat: pl.Float64 = pa.Field(ge=-90, le=90)
+    origin_lon: pl.Float64 = pa.Field(ge=-180, le=180)
+    dest_lat: pl.Float64 = pa.Field(ge=-90, le=90)
+    dest_lon: pl.Float64 = pa.Field(ge=-180, le=180)
+    origin_location_type: pl.Utf8  # 'home', 'work', 'school', 'other'
+    dest_location_type: pl.Utf8
+
+    # Mode [hierarchical]  # noqa: ERA001
+    tour_mode: pl.Int64 = pa.Field(ge=1)
+    outbound_mode: pl.Int64 = pa.Field(ge=1)
+    inbound_mode: pl.Int64 = pa.Field(ge=1)
+
+    # Stops
+    num_outbound_stops: pl.Int64 = pa.Field(ge=0)
+    num_inbound_stops: pl.Int64 = pa.Field(ge=0)
+
+    # Flags
+    is_primary_tour: pl.Boolean
+    tour_starts_at_origin: pl.Boolean
+    tour_ends_at_origin: pl.Boolean
+
+
+class PersonDayModel(pa.DataFrameModel):
+    """Daily activity pattern summary with clear purpose-specific counts."""
+
+    person_id: pl.Int64 = pa.Field(ge=1)
+    day_id: pl.Int64 = pa.Field(ge=1)
+
+    # Tour counts by category
+    num_home_based_tours: pl.Int64 = pa.Field(ge=0)
+    num_work_based_tours: pl.Int64 = pa.Field(ge=0)
+    num_tours_to_usual_work: pl.Int64 = pa.Field(ge=0)
+
+    # Tour counts by purpose (explicit names, not numbered)
+    num_work_tours: pl.Int64 = pa.Field(ge=0)
+    num_school_tours: pl.Int64 = pa.Field(ge=0)
+    num_escort_tours: pl.Int64 = pa.Field(ge=0)
+    num_shop_tours: pl.Int64 = pa.Field(ge=0)
+    num_meal_tours: pl.Int64 = pa.Field(ge=0)
+    num_social_tours: pl.Int64 = pa.Field(ge=0)
+    num_recreation_tours: pl.Int64 = pa.Field(ge=0)
+    num_medical_tours: pl.Int64 = pa.Field(ge=0)
+    num_other_tours: pl.Int64 = pa.Field(ge=0)
+
+    # Stop counts by purpose
+    num_work_stops: pl.Int64 = pa.Field(ge=0)
+    num_school_stops: pl.Int64 = pa.Field(ge=0)
+    num_escort_stops: pl.Int64 = pa.Field(ge=0)
+    num_shop_stops: pl.Int64 = pa.Field(ge=0)
+    num_meal_stops: pl.Int64 = pa.Field(ge=0)
+    num_social_stops: pl.Int64 = pa.Field(ge=0)
+    num_recreation_stops: pl.Int64 = pa.Field(ge=0)
+    num_medical_stops: pl.Int64 = pa.Field(ge=0)
+    num_other_stops: pl.Int64 = pa.Field(ge=0)
+
+    # Day characteristics
+    day_starts_at_home: pl.Boolean
+    day_ends_at_home: pl.Boolean
+    primary_tour_id: pl.Int64 = pa.Field(ge=1, nullable=True)
+
+
+class TourTripModel(TripModel):
+    """Trip records with tour assignments using clear field names."""
+
+    tour_id: pl.Int64 = pa.Field(ge=1)
+    tour_sequence_num: pl.Int64 = pa.Field(ge=1)
+    half_tour: pl.Utf8  # 'outbound' or 'inbound'
+    stop_sequence: pl.Int64 = pa.Field(ge=1)  # Within half-tour
+    is_tour_origin_trip: pl.Boolean  # First trip of tour
+    is_tour_dest_trip: pl.Boolean  # Last trip to primary destination
+    is_tour_return_trip: pl.Boolean  # Last trip of tour

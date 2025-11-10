@@ -7,7 +7,7 @@ from typing import Any
 import polars as pl
 import yaml
 
-from travel_diary_survey_tools import link_trips
+from travel_diary_survey_tools import TourBuilder, link_trips
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,7 +25,6 @@ class Pipeline:
         """
         self.config_path = Path(config_path)
         self.config = self._load_config()
-        self._expand_config_paths()
 
         # Canonical tables - always present
         self.household: pl.DataFrame | None = None
@@ -43,15 +42,13 @@ class Pipeline:
         }
 
     def _load_config(self) -> dict[str, Any]:
-        """Load and parse YAML config file."""
+        """Load and parse YAML config file with shorthand replacement."""
         with self.config_path.open() as f:
-            return yaml.safe_load(f)
+            config = yaml.safe_load(f)
 
-    def _expand_config_paths(self) -> None:
-        """Expand all path variables in config at initialization."""
         variables = {
             k: v
-            for k, v in self.config.items()
+            for k, v in config.items()
             if k != "pipeline" and isinstance(v, str)
         }
 
@@ -71,7 +68,7 @@ class Pipeline:
                         if isinstance(item, dict):
                             expand_dict(item)
 
-        expand_dict(self.config)
+        return expand_dict(config)
 
     def run(self) -> None:
         """Run pipeline steps defined in config.yaml."""
@@ -113,7 +110,16 @@ class Pipeline:
             step_config: Step configuration from YAML
 
         """
-        # TODO(https://github.com/owner/repo/issues/123): Implement tour building  # noqa: E501, FIX002
+        # Load persons data
+        person_path = step_config["input"]["person"]
+        persons = pl.read_csv(person_path)
+
+        # Build tours
+        builder = TourBuilder(persons, step_config.get("parameters", {}))
+        self.linked_trips, tours = builder.build_tours(self.linked_trips)
+
+        # Store tours as attribute
+        self.tours = tours
 
     def save_outputs(self, step_config: dict[str, Any]) -> None:
         """Save processed data to output files.
